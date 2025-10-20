@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VideoConnect — Random Video Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+  <style>
+    /* Reset & base */
+    :root {
+      --bg-1: #070707;
+      --bg-2: #1e1e1e;
+      --accent: #ffd700;
+      --muted: #9a9a9a;
+      --panel: rgba(255, 255, 255, 0.05);
+      --glass: rgba(255, 255, 255, 0.05);
+      --positive: #34d399; /* Tailwind emerald-400 */
+      --danger: #ef4444; /* Tailwind red-500 */
+      --radius: 12px;
+      --shadow-1: 0 6px 24px rgba(0, 0, 0, 0.6);
+      --glass-border: rgba(255, 215, 0, 0.1);
+      --max-width: 1200px;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-1);
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1rem;
+    }
+
+    .container {
+      max-width: var(--max-width);
+      width: 100%;
+      background-color: var(--bg-2);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-1);
+      padding: 1rem;
+      transition: all 0.3s ease;
+    }
+
+    /* Video Panel Styling */
+    .video-panel {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      width: 100%;
+      height: 60vh; /* Fixed height for video area */
+      min-height: 300px;
+      margin-bottom: 1.5rem;
+      position: relative;
+    }
+
+    /* Small media queries for side-by-side video on wider screens */
+    @media (min-width: 768px) {
+      .video-panel {
+        grid-template-columns: repeat(2, 1fr);
+        height: 70vh;
+      }
+    }
+
+    .video-container {
+      position: relative;
+      background-color: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border: 1px solid var(--panel);
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* Mirror local video */
+    }
+
+    .video-placeholder {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.7);
+      color: var(--muted);
+      font-weight: 500;
+      z-index: 10;
+      opacity: 1;
+      transition: opacity 0.5s ease;
+    }
+
+    .hidden-placeholder {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Controls Styling */
+    .control-panel {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding: 1rem 0;
+    }
+
+    .status-badge {
+      padding: 0.5rem 1rem;
+      border-radius: 9999px;
+      font-weight: 600;
+      font-size: 0.875rem;
+      transition: background-color 0.3s;
+    }
+
+    .status-badge.disconnected {
+      background-color: var(--danger);
+      color: white;
+    }
+    .status-badge.connecting {
+      background-color: var(--accent);
+      color: #121212;
+    }
+    .status-badge.matched {
+      background-color: var(--positive);
+      color: #121212;
+    }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: var(--radius);
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      font-size: 1rem;
+    }
+
+    .btn-primary {
+      background-color: var(--accent);
+      color: var(--bg-1);
+    }
+
+    .btn-primary:hover {
+      background-color: #f7e69f;
+    }
+
+    .btn-danger {
+      background-color: var(--danger);
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background-color: #f87171;
+    }
+
+    .icon-controls {
+      display: flex;
+      gap: 0.75rem;
+      flex-grow: 1;
+      justify-content: center;
+    }
+
+    .icon-btn {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background-color: var(--panel);
+      color: white;
+      border: 1px solid var(--glass-border);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    .icon-btn:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .icon-btn.active {
+      background-color: var(--positive);
+      color: var(--bg-1);
+    }
+
+    .icon-btn.disabled {
+      background-color: var(--danger);
+      color: white;
+    }
+
+    /* Modal Styling */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(5px);
+    }
+
+    .modal-content {
+      background-color: var(--bg-2);
+      margin: 15% auto;
+      padding: 2rem;
+      border: 1px solid var(--glass-border);
+      width: 90%;
+      max-width: 500px;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-1);
+      position: relative;
+    }
+
+    .modal-close {
+      color: var(--muted);
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .modal-close:hover,
+    .modal-close:focus {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .premium-tag {
+      background-color: var(--accent);
+      color: var(--bg-1);
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-weight: 700;
+      font-size: 0.75rem;
+      margin-left: 0.5rem;
+    }
+    
+    /* New styles for plan cards and filter buttons */
+    .plan-card {
+      transition: all 0.2s ease;
+      background-color: rgba(30, 30, 30, 0.9);
+    }
+    .plan-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2);
+    }
+    
+    .select-plan-btn {
+      min-width: 100px;
+    }
+    
+    .filter-btn {
+      width: auto;
+      min-width: 80px;
+      height: 40px;
+      border-radius: var(--radius);
+      background-color: var(--panel);
+      font-size: 0.9rem;
+      font-weight: 500;
+      gap: 0.5rem;
+      /* Override circular style */
+      border: 1px solid var(--glass-border);
+    }
+
+    .filter-btn.active {
+      background-color: var(--accent);
+      color: var(--bg-1);
+    }
+
+
+    /* Small screen adjustment for controls */
+    @media (max-width: 640px) {
+      .control-panel {
+        flex-direction: column;
+      }
+      .icon-controls {
+        order: 3;
+        width: 100%;
+        margin-top: 1rem;
+      }
+      .status-group {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .main-action-group {
+        width: 100%;
+      }
+      .btn {
+        width: 100%;
+      }
+      .filter-btn {
+        flex-grow: 1;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <header class="flex justify-between items-center mb-4">
+      <h1 class="text-2xl font-bold flex items-center">VideoConnect <span id="premiumIndicator"></span></h1>
+      <div id="userIdDisplay" class="text-xs text-right p-2 rounded-lg bg-gray-800 text-muted">
+        User ID: Loading...
+      </div>
+    </header>
+
+    <!-- Video Display Area -->
+    <div class="video-panel">
+      <!-- Local Video -->
+      <div class="video-container">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <div id="localPlaceholder" class="video-placeholder">
+          <i class="fas fa-video text-3xl mb-2"></i>
+          <span>Your Camera</span>
+        </div>
+      </div>
+
+      <!-- Remote Video -->
+      <div class="video-container">
+        <video id="remoteVideo" autoplay playsinline></video>
+        <div id="remotePlaceholder" class="video-placeholder">
+          <i class="fas fa-user-friends text-3xl mb-2"></i>
+          <span id="remoteStatusText">Awaiting Match...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="control-panel">
+      <div class="status-group flex items-center gap-4">
+        <span id="connectionStatus" class="status-badge disconnected">Disconnected</span>
+        <!-- REPLACED GET PREMIUM WITH GENDER FILTER BUTTON -->
+        <button id="premiumBtn" class="text-sm text-gray-400 hover:text-accent font-medium transition duration-200 flex items-center gap-1">
+          <i class="fas fa-filter"></i> Gender Filter
+        </button>
+      </div>
+
+      <div class="icon-controls">
+        <button id="micToggle" class="icon-btn" aria-label="Toggle Microphone">
+          <i class="fas fa-microphone-slash"></i>
+        </button>
+        <button id="cameraToggle" class="icon-btn" aria-label="Toggle Camera">
+          <i class="fas fa-video-slash"></i>
+        </button>
+      </div>
+
+      <div class="main-action-group">
+        <button id="connectBtn" class="btn btn-primary">
+          <i class="fas fa-search"></i> Start Matching
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Subscription/Filter Modal -->
+  <div id="premiumModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="premiumTitle" aria-hidden="true">
+    <div class="modal-content">
+      <span id="closePremiumSpan" class="modal-close">&times;</span>
+      <h2 id="premiumTitle" class="text-2xl font-bold mb-4 text-accent">Gender Filter Access</h2>
+      
+      <!-- Plan Options (Visible if premiumActive is false) -->
+      <div id="planOptionsContainer">
+        <p class="mb-6 text-gray-300">
+          Select a plan to activate the **Gender Filter** and choose who you connect with. All plans offer the same premium features.
+        </p>
+  
+        <!-- Plan Cards Container -->
+        <div class="space-y-4">
+          <!-- 1. Weekly Trial -->
+          <div id="planWeekly" data-plan="weekly" class="plan-card p-4 rounded-xl border border-gray-700 hover:border-accent transition cursor-pointer bg-gray-800">
+            <div class="flex justify-between items-center">
+              <div>
+                <p class="text-lg font-bold">Weekly Trial</p>
+                <p class="text-sm text-positive font-medium">7 Days Free, then $4.99/week</p>
+              </div>
+              <button class="select-plan-btn btn btn-primary text-sm p-2" data-plan-id="weekly">Start Trial</button>
+            </div>
+          </div>
+          
+          <!-- 2. Monthly Plan -->
+          <div id="planMonthly" data-plan="monthly" class="plan-card p-4 rounded-xl border border-gray-700 hover:border-accent transition cursor-pointer bg-gray-800">
+            <div class="flex justify-between items-center">
+              <div>
+                <p class="text-lg font-bold">Monthly Plan</p>
+                <p class="text-sm text-gray-400">$14.99/month <span class="text-xs text-accent font-semibold">(Save 25%)</span></p>
+              </div>
+              <button class="select-plan-btn btn btn-primary text-sm p-2" data-plan-id="monthly">Select</button>
+            </div>
+          </div>
+  
+          <!-- 3. 6 Month Plan -->
+          <div id="planSixMonth" data-plan="sixmonth" class="plan-card p-4 rounded-xl border border-gray-700 hover:border-accent transition cursor-pointer bg-gray-800">
+            <div class="flex justify-between items-center">
+              <div>
+                <p class="text-lg font-bold">6 Month Plan</p>
+                <p class="text-sm text-gray-400">$49.99/6 months <span class="text-xs text-positive font-semibold">(Best Value!)</span></p>
+              </div>
+              <button class="select-plan-btn btn btn-primary text-sm p-2" data-plan-id="sixmonth">Select</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Gender Selection Filter (Visible if premiumActive is true) -->
+      <div id="genderSelection" class="mt-6 p-4 border border-positive bg-gray-800 rounded-xl" style="display: none;">
+        <p class="text-positive font-semibold mb-3 text-lg">Gender Filter Active!</p>
+        <p class="text-sm text-gray-400 mb-4">Choose the preferred gender for your next connection:</p>
+        <div class="flex gap-4 flex-wrap justify-center">
+          <button data-filter="male" class="filter-btn icon-btn flex-col">
+            <i class="fas fa-mars"></i> Male
+          </button>
+          <button data-filter="female" class="filter-btn icon-btn flex-col">
+            <i class="fas fa-venus"></i> Female
+          </button>
+          <button data-filter="any" class="filter-btn icon-btn flex-col">
+            <i class="fas fa-users"></i> Any
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Question Modal (Used here as a simple status message) -->
+  <div id="questionModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="questionTitle" aria-hidden="true">
+    <div class="modal-content">
+      <span id="closeQuestionSpan" class="modal-close">&times;</span>
+      <h2 id="questionTitle" class="text-2xl font-bold mb-4 text-positive">Welcome!</h2>
+      <p class="mb-4 text-gray-300">
+        You are successfully connected. Your user ID is visible in the top right. This is a secure, authenticated session.
+      </p>
+      <button id="closeQuestionBtn" class="btn btn-primary w-full">Got It</button>
+    </div>
+  </div>
+
+  <script type="module">
+    // --- Firebase/Firestore Imports and Global Variables ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot, updateDoc, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // Global variables (MUST be defined as per environment instructions)
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+    let app, db, auth;
+    let currentUserId = null;
+    const USER_SETTINGS_PATH = (userId) => `artifacts/${appId}/users/${userId}/vc_status/settings`;
+
+    // --- Application State ---
+    const appState = {
+      isAuthReady: false,
+      isConnected: false,
+      isConnecting: false,
+      cameraOn: false,
+      micOn: false,
+      premiumActive: false,
+      currentPlan: null, // 'weekly', 'monthly', 'sixmonth'
+      genderFilter: 'any', // 'male', 'female', 'any'
+      localStream: null,
+      remoteStream: null, // Simulated
+    };
+
+    // --- DOM Elements ---
+    const elements = {
+      connectBtn: document.getElementById('connectBtn'),
+      micToggle: document.getElementById('micToggle'),
+      cameraToggle: document.getElementById('cameraToggle'),
+      connectionStatus: document.getElementById('connectionStatus'),
+      localVideo: document.getElementById('localVideo'),
+      remoteVideo: document.getElementById('remoteVideo'),
+      localPlaceholder: document.getElementById('localPlaceholder'),
+      remotePlaceholder: document.getElementById('remotePlaceholder'),
+      remoteStatusText: document.getElementById('remoteStatusText'),
+      userIdDisplay: document.getElementById('userIdDisplay'),
+      premiumIndicator: document.getElementById('premiumIndicator'),
+      premiumBtn: document.getElementById('premiumBtn'),
+      premiumModal: document.getElementById('premiumModal'),
+      questionModal: document.getElementById('questionModal'),
+      
+      // New elements for plan/filter
+      planOptionsContainer: document.getElementById('planOptionsContainer'),
+      genderSelectionDiv: document.getElementById('genderSelection'),
+      selectPlanButtons: document.querySelectorAll('.select-plan-btn'),
+      filterButtons: document.querySelectorAll('#genderSelection .filter-btn'), // Scoped selection
+      
+      closePremiumSpan: document.getElementById('closePremiumSpan'),
+      closeQuestionSpan: document.getElementById('closeQuestionSpan'),
+      closeQuestionBtn: document.getElementById('closeQuestionBtn'),
+    };
+
+    // --- Utility Functions ---
+
+    /** Renders the entire UI based on the current appState. */
+    function renderApp() {
+      // 1. Connection Status and Main Button
+      elements.connectBtn.disabled = appState.isConnecting;
+      elements.connectBtn.innerHTML = appState.isConnected
+        ? '<i class="fas fa-phone-slash"></i> End Call'
+        : appState.isConnecting
+          ? '<i class="fas fa-spinner fa-spin"></i> Connecting...'
+          : '<i class="fas fa-search"></i> Start Matching';
+
+      elements.connectBtn.className = `btn ${appState.isConnected ? 'btn-danger' : 'btn-primary'}`;
+      elements.connectBtn.onclick = appState.isConnected ? endCall : connect;
+
+      // 2. Status Badge
+      let statusClass, statusText;
+      if (appState.isConnected) {
+        statusClass = 'matched';
+        statusText = 'Matched';
+      } else if (appState.isConnecting) {
+        statusClass = 'connecting';
+        statusText = 'Connecting';
+      } else {
+        statusClass = 'disconnected';
+        statusText = 'Disconnected';
+      }
+      elements.connectionStatus.className = `status-badge ${statusClass}`;
+      elements.connectionStatus.textContent = statusText;
+
+      // 3. Icon Toggles (Mic/Camera)
+      elements.micToggle.className = `icon-btn ${appState.micOn ? 'active' : 'disabled'}`;
+      elements.micToggle.innerHTML = `<i class="fas fa-microphone${appState.micOn ? '' : '-slash'}"></i>`;
+      elements.micToggle.disabled = appState.isConnecting;
+
+      elements.cameraToggle.className = `icon-btn ${appState.cameraOn ? 'active' : 'disabled'}`;
+      elements.cameraToggle.innerHTML = `<i class="fas fa-video${appState.cameraOn ? '' : '-slash'}"></i>`;
+      elements.cameraToggle.disabled = appState.isConnecting;
+
+      // 4. Video Display
+      elements.localPlaceholder.classList.toggle('hidden-placeholder', appState.localStream && appState.cameraOn);
+      elements.remotePlaceholder.classList.toggle('hidden-placeholder', appState.isConnected);
+      elements.remoteStatusText.textContent = appState.isConnected ? 'Connected to Partner' : (appState.isConnecting ? 'Searching...' : 'Awaiting Match...');
+
+      // 5. Premium Indicator / Filter Status
+      if (appState.premiumActive) {
+        elements.premiumIndicator.innerHTML = `<span class="premium-tag">FILTER: ${appState.genderFilter.toUpperCase()}</span>`;
+      } else {
+        elements.premiumIndicator.innerHTML = '';
+      }
+      
+      // Handle modal content visibility
+      if (elements.genderSelectionDiv && elements.planOptionsContainer) {
+        elements.genderSelectionDiv.style.display = appState.premiumActive ? 'flex' : 'none';
+        elements.planOptionsContainer.style.display = appState.premiumActive ? 'none' : 'block';
+
+        elements.filterButtons.forEach(btn => {
+            const isActive = btn.dataset.filter === appState.genderFilter;
+            btn.classList.toggle('active', isActive);
+        });
+      }
+    }
+
+    /**
+     * Toggles the state of a media track (audio or video).
+     * @param {string} type - 'audio' or 'video'
+     * @param {boolean} newState - The desired state (true for on, false for off)
+     */
+    function toggleMedia(type, newState) {
+      if (!appState.localStream) return;
+
+      const trackType = type === 'audio' ? 'micOn' : 'cameraOn';
+      const track = appState.localStream.getTracks().find(t => t.kind === type);
+
+      if (track) {
+        track.enabled = newState;
+        appState[trackType] = newState;
+      } else if (type === 'video' && newState) {
+        appState[trackType] = newState;
+      } else if (type === 'video' && !newState) {
+         appState[trackType] = newState;
+      }
+      renderApp();
+    }
+
+    // --- Media (WebRTC Simulation) Functions ---
+
+    /** Attempts to get the local media stream. */
+    async function startLocalStream() {
+      if (appState.localStream) {
+        return appState.localStream;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        appState.localStream = stream;
+        elements.localVideo.srcObject = stream;
+        appState.cameraOn = true;
+        appState.micOn = true;
+        toggleMedia('audio', true); 
+        toggleMedia('video', true); 
+        return stream;
+      } catch (error) {
+        console.error("Failed to get local media stream:", error);
+        appState.cameraOn = false;
+        appState.micOn = false;
+        appState.localStream = null;
+        renderApp();
+        return null;
+      }
+    }
+
+    /** Starts the connection process (simulated matching and call). */
+    async function connect() {
+      if (appState.isConnected || appState.isConnecting) return;
+
+      console.log('Starting connect sequence...');
+      appState.isConnecting = true;
+      renderApp();
+
+      // 1. Get Local Media (Attempt)
+      const stream = await startLocalStream();
+      if (!stream) {
+        console.warn("Continuing match simulation without media stream.");
+      }
+
+      // 2. Start Matching Simulation
+      elements.remoteStatusText.textContent = "Searching for partner...";
+      // Premium benefit: faster match (based on currentPlan existence)
+      await new Promise(resolve => setTimeout(resolve, appState.premiumActive ? 1500 : 3000)); 
+
+      // 3. Match Found (Simulated Remote Stream)
+      appState.isConnected = true;
+      appState.isConnecting = false;
+      
+      // Simulate a placeholder remote stream (real WebRTC would set remoteVideo.srcObject here)
+      elements.remoteVideo.srcObject = elements.localVideo.srcObject; 
+      
+      console.log('Match established!');
+      renderApp();
+    }
+
+    /** Ends the current call and stops media. */
+    function endCall() {
+      if (!appState.isConnected) return;
+
+      console.log('Ending call.');
+
+      // 1. Stop local tracks
+      if (appState.localStream) {
+        appState.localStream.getTracks().forEach(track => track.stop());
+      }
+      
+      // 2. Clear video sources and set stream to null
+      elements.localVideo.srcObject = null;
+      elements.remoteVideo.srcObject = null;
+      appState.localStream = null;
+      
+      // 3. Reset state
+      appState.isConnected = false;
+      appState.isConnecting = false;
+      appState.cameraOn = false;
+      appState.micOn = false;
+
+      // 4. Update UI
+      renderApp();
+    }
+
+    // --- Firestore Data Handlers ---
+
+    /**
+     * Initializes a listener for the user's settings (subscription and filter status).
+     * @param {string} userId - The authenticated user's ID.
+     */
+    function listenForUserSettings(userId) {
+      if (!db) return;
+      const docRef = doc(db, USER_SETTINGS_PATH(userId));
+
+      onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          
+          // Premium is active if a plan is set
+          const newPremium = !!data.currentPlan; 
+          const newPlan = data.currentPlan || null;
+          const newFilter = data.genderFilter || 'any';
+
+          if (appState.premiumActive !== newPremium || appState.currentPlan !== newPlan || appState.genderFilter !== newFilter) {
+            appState.premiumActive = newPremium;
+            appState.currentPlan = newPlan;
+            appState.genderFilter = newFilter;
+            console.log(`State updated. Plan: ${appState.currentPlan}, Filter: ${appState.genderFilter}`);
+            renderApp();
+          }
+        } else {
+          // Document does not exist, create a default one
+          console.log("No user settings found, creating default.");
+          setDoc(docRef, {
+            currentPlan: null,
+            genderFilter: 'any',
+            createdAt: Timestamp.now(),
+            lastSeen: Timestamp.now()
+          }, { merge: true }).catch(err => console.error("Error setting default settings:", err));
+        }
+      }, (error) => {
+        console.error("Error listening to user settings:", error);
+      });
+    }
+
+    /** Sets the subscription plan in Firestore. */
+    async function setSubscription(planId) {
+      if (!currentUserId || !db) {
+        console.error("User not authenticated or database not initialized.");
+        return false;
+      }
+      try {
+        const docRef = doc(db, USER_SETTINGS_PATH(currentUserId));
+        await updateDoc(docRef, {
+          currentPlan: planId,
+          genderFilter: 'any', // Reset filter on new subscription
+          purchaseDate: Timestamp.now()
+        });
+        console.log(`Subscription set to ${planId} in Firestore.`);
+        return true;
+      } catch (e) {
+        console.error("Error setting subscription:", e);
+        return false;
+      }
+    }
+
+    /** Updates the selected gender filter in Firestore. */
+    async function updateGenderFilter(filter) {
+        if (!currentUserId || !db || !appState.premiumActive) {
+             console.error("Cannot update filter: Not authenticated or premium not active.");
+             return false;
+        }
+        try {
+            const docRef = doc(db, USER_SETTINGS_PATH(currentUserId));
+            await updateDoc(docRef, {
+                genderFilter: filter
+            });
+            console.log(`Gender filter set to: ${filter}`);
+            return true;
+        } catch (e) {
+            console.error("Error updating gender filter:", e);
+            return false;
+        }
+    }
+
+    // --- UI Event Handlers and Modals ---
+
+    function openPremiumModal() {
+      elements.premiumModal.style.display = 'flex';
+      elements.premiumModal.setAttribute('aria-hidden', 'false');
+      // Render immediately to show correct modal content (plans or filter)
+      renderApp();
+    }
+
+    function closePremiumModal() {
+      elements.premiumModal.style.display = 'none';
+      elements.premiumModal.setAttribute('aria-hidden', 'true');
+    }
+
+    function openQuestionnaire() {
+      elements.questionModal.style.display = 'flex';
+      elements.questionModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeQuestionnaire() {
+      elements.questionModal.style.display = 'none';
+      elements.questionModal.setAttribute('aria-hidden', 'true');
+    }
+
+    // --- Initialization and Event Listeners ---
+
+    function setupEventListeners() {
+      // Main UI interaction listeners
+      elements.premiumBtn.onclick = openPremiumModal; // Now opens filter/plan modal
+      elements.micToggle.onclick = () => toggleMedia('audio', !appState.micOn);
+      elements.cameraToggle.onclick = () => toggleMedia('video', !appState.cameraOn);
+
+      // Listener for Plan Selection
+      elements.selectPlanButtons.forEach(btn => {
+        btn.onclick = async () => {
+          const planId = btn.dataset.planId;
+          const success = await setSubscription(planId);
+          if (success) {
+            // Firestore listener updates state, renderApp switches modal content
+            console.log(`Plan ${planId} selected. Filter is now active.`);
+          }
+        };
+      });
+      
+      // Listener for Gender Filter Selection
+      elements.filterButtons.forEach(btn => {
+        btn.onclick = async () => {
+            const filter = btn.dataset.filter;
+            await updateGenderFilter(filter);
+            // State update is handled by onSnapshot
+        };
+      });
+      
+      // Modal Close Listeners 
+      elements.closePremiumSpan.onclick = closePremiumModal;
+      elements.closeQuestionSpan.onclick = closeQuestionnaire;
+      elements.closeQuestionBtn.onclick = closeQuestionnaire;
+
+
+      // Close modals when backdrop clicked
+      [elements.questionModal, elements.premiumModal].forEach(mod => {
+        mod.addEventListener('click', e => {
+          if (e.target === mod) {
+            if (mod.id === 'premiumModal') {
+              closePremiumModal();
+            } else if (mod.id === 'questionModal') {
+              closeQuestionnaire();
+            }
+          }
+        });
+      });
+    }
+
+
+    /** Firebase Initialization and Auth */
+    async function initializeFirebase() {
+      if (!firebaseConfig) {
+        console.error("Firebase config is missing. Cannot initialize Firebase.");
+        return;
+      }
+      
+      setLogLevel('debug');
+      app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+      auth = getAuth(app);
+      
+      try {
+        await setPersistence(auth, browserSessionPersistence);
+        
+        if (initialAuthToken) {
+          await signInWithCustomToken(auth, initialAuthToken);
+          console.log("Signed in with custom token.");
+        } else {
+          await signInAnonymously(auth);
+          console.log("Signed in anonymously.");
+        }
+      } catch (error) {
+        console.error("Firebase Auth failed:", error);
+      }
+
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          currentUserId = user.uid;
+          elements.userIdDisplay.innerHTML = `User ID: ${currentUserId}`;
+          listenForUserSettings(currentUserId); // Start Firestore listener
+          appState.isAuthReady = true;
+          openQuestionnaire(); // Show welcome message on first successful auth
+        } else {
+          currentUserId = null;
+          elements.userIdDisplay.textContent = 'User ID: Not Signed In';
+          appState.isAuthReady = false;
+        }
+        renderApp();
+      });
+    }
+
+    // --- Run on Load ---
+    window.onload = function() {
+      initializeFirebase();
+      setupEventListeners();
+      renderApp(); // Initial render
+    };
+
+  </script>
+</body>
+</html>
