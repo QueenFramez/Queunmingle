@@ -127,17 +127,29 @@
       transition: background-color 0.3s;
     }
 
-    .status-badge.disconnected {
+    .status-badge.idle, .status-badge.disconnected {
       background-color: var(--danger);
       color: white;
     }
-    .status-badge.connecting {
+    .status-badge.searching {
       background-color: var(--accent);
       color: #121212;
+      animation: pulse 1.5s infinite;
     }
     .status-badge.matched {
       background-color: var(--positive);
       color: #121212;
+    }
+    .status-badge.not_found {
+        background-color: var(--danger);
+        color: white;
+        animation: none;
+    }
+    
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(255, 215, 0, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
     }
 
     .btn {
@@ -284,7 +296,7 @@
       margin-left: 0.5rem;
     }
     
-    /* New styles for plan cards and filter buttons */
+    /* Styles for plan cards and filter buttons */
     .plan-card {
       transition: all 0.2s ease;
       background-color: rgba(30, 30, 30, 0.9);
@@ -307,13 +319,27 @@
       font-size: 0.9rem;
       font-weight: 500;
       gap: 0.5rem;
-      /* Override circular style */
       border: 1px solid var(--glass-border);
     }
 
     .filter-btn.active {
       background-color: var(--accent);
       color: var(--bg-1);
+    }
+    
+    /* Loader for searching status */
+    .spinner {
+        border: 3px solid rgba(0, 0, 0, 0.1);
+        border-top: 3px solid #121212;
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        animation: spin 1s linear infinite;
+        margin-right: 0.5rem;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
     }
 
 
@@ -378,7 +404,7 @@
     <!-- Controls -->
     <div class="control-panel">
       <div class="status-group flex items-center gap-4">
-        <span id="connectionStatus" class="status-badge disconnected">Disconnected</span>
+        <span id="connectionStatus" class="status-badge idle">Ready to Connect</span>
         <!-- Gender Filter Button -->
         <button id="premiumBtn" class="text-sm text-gray-400 hover:text-accent font-medium transition duration-200 flex items-center gap-1">
           <i class="fas fa-filter"></i> Gender Filter
@@ -386,17 +412,17 @@
       </div>
 
       <div class="icon-controls">
-        <button id="micToggle" class="icon-btn" aria-label="Toggle Microphone">
+        <button id="micToggle" class="icon-btn" aria-label="Toggle Microphone" disabled>
           <i class="fas fa-microphone-slash"></i>
         </button>
-        <button id="cameraToggle" class="icon-btn" aria-label="Toggle Camera">
+        <button id="cameraToggle" class="icon-btn" aria-label="Toggle Camera" disabled>
           <i class="fas fa-video-slash"></i>
         </button>
       </div>
 
       <!-- Main Action Group - Handles all connection states -->
       <div class="main-action-group flex gap-2 w-full md:w-auto">
-        <!-- Visible when Disconnected/Connecting -->
+        <!-- Visible when Disconnected/Searching -->
         <button id="connectBtn" class="btn btn-primary flex-grow">
           <i class="fas fa-search"></i> Start Matching
         </button>
@@ -490,7 +516,7 @@
       <span id="closeQuestionSpan" class="modal-close">&times;</span>
       <h2 id="questionTitle" class="text-2xl font-bold mb-4 text-positive">Welcome!</h2>
       <p class="mb-4 text-gray-300">
-        You are successfully connected. Your user ID is visible in the top right. This is a secure, authenticated session.
+        You are successfully connected. Your user ID is visible in the top right. This is a secure, authenticated session. Click "Start Matching" to connect with someone online.
       </p>
       <button id="closeQuestionBtn" class="btn btn-primary w-full">Got It</button>
     </div>
@@ -500,7 +526,10 @@
     // --- Firebase/Firestore Imports and Global Variables ---
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, onSnapshot, updateDoc, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { 
+        getFirestore, doc, setDoc, onSnapshot, updateDoc, Timestamp,
+        collection, query, where, getDocs, deleteDoc, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // Global variables (MUST be defined as per environment instructions)
@@ -515,30 +544,36 @@
     // --- Application State ---
     const appState = {
       isAuthReady: false,
-      isConnected: false,
-      isConnecting: false,
+      // Main state for connection: 'idle', 'searching', 'not_found', 'matched'
+      connectionStatus: 'idle', 
       cameraOn: false,
       micOn: false,
       premiumActive: false,
-      currentPlan: null, // 'weekly', 'monthly', 'sixmonth'
-      genderFilter: 'any', // 'male', 'female', 'any'
+      currentPlan: null, 
+      genderFilter: 'any', 
       localStream: null,
-      remoteStream: null, // Simulated
+      remoteStream: null, 
       
-      // NEW: History for 'Back' button
+      // History for 'Back' button
       lastPartnerId: null, 
       lastPartnerName: null,
-      currentPartnerId: null, // Used to track who the 'last' partner was before moving them to history
+      currentPartnerId: null, 
       currentPartnerName: null,
     };
     
     // Simple helper for generating simulated partner data
     const NAMES = ["Alex", "Jordan", "Taylor", "Kai", "Rylie", "Jesse", "Sam", "Drew"];
-    function generatePartnerData() {
-        const id = crypto.randomUUID().substring(0, 8);
-        const name = NAMES[Math.floor(Math.random() * NAMES.length)];
-        return { id, name };
+    function generatePartnerName(id) {
+        // Use a consistent name based on ID for simulation stability
+        const index = id.charCodeAt(0) % NAMES.length;
+        return NAMES[index];
     }
+    
+    // Firestore Path for real-time presence
+    function getOnlineUsersCollectionRef() {
+        return collection(db, 'artifacts', appId, 'public', 'data', 'online_users');
+    }
+
 
     // --- DOM Elements ---
     const elements = {
@@ -575,78 +610,76 @@
 
     /** Renders the entire UI based on the current appState. */
     function renderApp() {
+      const status = appState.connectionStatus;
+      const isConnected = status === 'matched';
+      const isSearching = status === 'searching';
+      const canGoBack = appState.lastPartnerId !== null;
+
       // 1. Connection Status and Main Buttons
       
-      // Control which main action buttons are visible
-      elements.connectBtn.classList.toggle('hidden', appState.isConnected || appState.isConnecting);
-      elements.nextPartnerBtn.classList.toggle('hidden', !appState.isConnected);
-      elements.endCallBtn.classList.toggle('hidden', !appState.isConnected);
-      elements.backBtn.classList.toggle('hidden', !appState.isConnected);
+      elements.connectBtn.classList.toggle('hidden', isConnected);
+      elements.nextPartnerBtn.classList.toggle('hidden', !isConnected);
+      elements.endCallBtn.classList.toggle('hidden', !isConnected);
+      elements.backBtn.classList.toggle('hidden', !isConnected);
       
-      // Manage the 'Back' button disabled state
-      const canGoBack = appState.lastPartnerId !== null;
       elements.backBtn.disabled = !canGoBack;
 
-
-      if (appState.isConnected) {
-          // Connected: dedicated buttons shown
-          // The connectBtn slot is empty (hidden)
-      } else if (appState.isConnecting) {
-          // Connecting: Only show connectBtn and change its look/action
-          elements.connectBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
-          elements.connectBtn.className = 'btn btn-danger flex-grow'; // Use danger to signal it can cancel
-          elements.connectBtn.onclick = endCall;
-      } else {
-          // Disconnected: Only show connectBtn
-          elements.connectBtn.innerHTML = '<i class="fas fa-search"></i> Start Matching';
-          elements.connectBtn.className = 'btn btn-primary flex-grow';
-          elements.connectBtn.onclick = connect;
-      }
+      // 2. Main Button Content
+      elements.connectBtn.innerHTML = '<i class="fas fa-search"></i> Start Matching';
+      elements.connectBtn.disabled = isSearching || status === 'not_found';
+      elements.connectBtn.onclick = connect;
       
-      // 2. Status Badge
-      let statusClass, statusText;
-      if (appState.isConnected) {
-        statusClass = 'matched';
-        statusText = `Matched with ${appState.currentPartnerName}`;
-      } else if (appState.isConnecting) {
-        statusClass = 'connecting';
-        statusText = 'Connecting';
-      } else {
-        statusClass = 'disconnected';
-        statusText = 'Disconnected';
+      if (isSearching) {
+        elements.connectBtn.innerHTML = '<div class="spinner"></div> Searching...';
+      } else if (status === 'not_found') {
+        elements.connectBtn.innerHTML = '<i class="fas fa-times-circle"></i> No Partner Found';
       }
-      elements.connectionStatus.className = `status-badge ${statusClass}`;
+
+      // 3. Status Badge
+      elements.connectionStatus.className = `status-badge ${status}`;
+      
+      let statusText = 'Ready to Connect';
+      if (status === 'searching') {
+        statusText = 'Searching for partner...';
+      } else if (status === 'not_found') {
+        statusText = 'No Partner Found. Try again.';
+      } else if (status === 'matched') {
+        statusText = `Matched with ${appState.currentPartnerName}`;
+      }
       elements.connectionStatus.textContent = statusText;
 
-      // 3. Icon Toggles (Mic/Camera)
+      // 4. Icon Toggles (Mic/Camera)
+      elements.micToggle.disabled = isSearching || status === 'idle' || status === 'not_found';
+      elements.cameraToggle.disabled = isSearching || status === 'idle' || status === 'not_found';
+      
       elements.micToggle.className = `icon-btn ${appState.micOn ? 'active' : 'disabled'}`;
       elements.micToggle.innerHTML = `<i class="fas fa-microphone${appState.micOn ? '' : '-slash'}"></i>`;
-      elements.micToggle.disabled = appState.isConnecting;
 
       elements.cameraToggle.className = `icon-btn ${appState.cameraOn ? 'active' : 'disabled'}`;
       elements.cameraToggle.innerHTML = `<i class="fas fa-video${appState.cameraOn ? '' : '-slash'}"></i>`;
-      elements.cameraToggle.disabled = appState.isConnecting;
 
-      // 4. Video Display
-      elements.localPlaceholder.classList.toggle('hidden-placeholder', appState.localStream && appState.cameraOn);
-      elements.remotePlaceholder.classList.toggle('hidden-placeholder', appState.isConnected);
+      // 5. Video Display
+      const hasVideo = appState.localStream && appState.cameraOn;
+      elements.localPlaceholder.classList.toggle('hidden-placeholder', hasVideo);
+      elements.remotePlaceholder.classList.toggle('hidden-placeholder', isConnected);
       
       let remoteStatusDisplay = 'Awaiting Match...';
-      if (appState.isConnected) {
+      if (isConnected) {
           remoteStatusDisplay = `Connected to ${appState.currentPartnerName}`;
-      } else if (appState.isConnecting) {
-          remoteStatusDisplay = (appState.currentPartnerId) ? `Reconnecting to ${appState.currentPartnerName}...` : 'Searching...';
-      } 
+      } else if (isSearching) {
+          remoteStatusDisplay = 'Searching...';
+      } else if (status === 'not_found') {
+          remoteStatusDisplay = 'No Partner Found.';
+      }
       elements.remoteStatusText.textContent = remoteStatusDisplay;
 
-      // 5. Premium Indicator / Filter Status
+      // 6. Premium Indicator / Filter Status
       if (appState.premiumActive) {
         elements.premiumIndicator.innerHTML = `<span class="premium-tag">FILTER: ${appState.genderFilter.toUpperCase()}</span>`;
       } else {
         elements.premiumIndicator.innerHTML = '';
       }
       
-      // Handle modal content visibility
       if (elements.genderSelectionDiv && elements.planOptionsContainer) {
         elements.genderSelectionDiv.style.display = appState.premiumActive ? 'flex' : 'none';
         elements.planOptionsContainer.style.display = appState.premiumActive ? 'none' : 'block';
@@ -695,60 +728,31 @@
         appState.cameraOn = false;
         appState.micOn = false;
         appState.localStream = null;
+        // Do not stop search if stream fails, allow user to try again later
         renderApp();
         return null;
       }
     }
 
-    /** Starts the connection process (simulated matching and call). 
-     * If partnerId is provided, it's a reconnection attempt.
-    */
-    async function connect(partnerId = null, partnerName = null) {
-      if (appState.isConnected || appState.isConnecting) return;
-
-      const isReconnecting = partnerId !== null;
-      
-      // 1. Prepare for connection
-      appState.isConnecting = true;
-      appState.currentPartnerId = partnerId;
-      appState.currentPartnerName = partnerName || 'New Partner';
-      
-      console.log(`Starting ${isReconnecting ? 'reconnect' : 'match'} sequence...`);
-      renderApp();
-
-      // 2. Get Local Media (Attempt)
-      const stream = await startLocalStream();
-      if (!stream) {
-        console.warn("Continuing match simulation without media stream.");
-      }
-
-      // 3. Start Matching/Reconnecting Simulation
-      elements.remoteStatusText.textContent = isReconnecting ? `Reconnecting to ${partnerName}...` : "Searching for partner...";
-      
-      // Simulation delay: quicker if reconnecting or premium
-      const delay = isReconnecting ? 1000 : (appState.premiumActive ? 1500 : 3000);
-      await new Promise(resolve => setTimeout(resolve, delay)); 
-
-      // 4. Match Found / Reconnection Successful
-      appState.isConnected = true;
-      appState.isConnecting = false;
-      
-      // If it was a new match, generate new partner data
-      if (!isReconnecting) {
-          const newPartner = generatePartnerData();
-          appState.currentPartnerId = newPartner.id;
-          appState.currentPartnerName = newPartner.name;
-      }
-      
-      // Simulate a placeholder remote stream 
-      elements.remoteVideo.srcObject = elements.localVideo.srcObject; 
-      
-      console.log(`Connection established with: ${appState.currentPartnerName} (${appState.currentPartnerId})`);
-      renderApp();
+    /** Placeholder function for actual call setup */
+    async function startCall(partnerId, partnerName) {
+        await startLocalStream();
+        appState.connectionStatus = 'matched';
+        appState.currentPartnerId = partnerId;
+        appState.currentPartnerName = partnerName;
+        // Simulate a placeholder remote stream (use local stream for visual feedback)
+        elements.remoteVideo.srcObject = elements.localVideo.srcObject; 
+        console.log(`Connection established with: ${partnerName} (${partnerId})`);
+        renderApp();
     }
+    
+    /** Stops media and fully disconnects the session. */
+    async function endCall(shouldSaveHistory = true) {
+      const status = appState.connectionStatus;
+      
+      // Clean up Firestore and local state
+      await goOffline(appState.currentPartnerId); // Go offline and unclaim if matched
 
-    /** Prepares the state for the next connection, saving current partner to history. */
-    function prepareForDisconnection(shouldSaveHistory) {
       if (shouldSaveHistory && appState.currentPartnerId) {
           // Save the current partner to history (lastPartner)
           appState.lastPartnerId = appState.currentPartnerId;
@@ -759,74 +763,198 @@
       // Reset current partner
       appState.currentPartnerId = null;
       appState.currentPartnerName = null;
-      appState.isConnected = false;
+      appState.connectionStatus = 'idle';
+      
       elements.remoteVideo.srcObject = null;
+
+      // 1. Stop local tracks if needed (only if we are truly ending the session, not just switching partners)
+      if (status !== 'searching') { 
+        if (appState.localStream) {
+            appState.localStream.getTracks().forEach(track => track.stop());
+        }
+        elements.localVideo.srcObject = null;
+        appState.localStream = null;
+        appState.cameraOn = false;
+        appState.micOn = false;
+      }
+
+      console.log('Call ended and state reset.');
+      renderApp();
     }
 
     /** Ends the current match and immediately starts searching for a new one. */
     function nextPartner() {
-      if (!appState.isConnected) return;
+      if (appState.connectionStatus !== 'matched') return;
 
       console.log('Ending current match and searching for next partner...');
-      // Save current partner to history before disconnection
-      prepareForDisconnection(true); 
+      // Disconnect but save current partner to history
+      endCall(true); 
       
       // Immediately start the connection process again.
       connect();
     }
     
-    /** Stops media and fully disconnects the session. */
-    function endCall() {
-      if (!appState.isConnected && !appState.isConnecting) return;
-
-      console.log('Ending call and stopping media.');
-      
-      // Save current partner to history before disconnection
-      prepareForDisconnection(true);
-
-      // 1. Stop local tracks
-      if (appState.localStream) {
-        appState.localStream.getTracks().forEach(track => track.stop());
-      }
-      
-      // 2. Clear video sources and set stream to null
-      elements.localVideo.srcObject = null;
-      appState.localStream = null;
-      
-      // 3. Reset media state
-      appState.cameraOn = false;
-      appState.micOn = false;
-      appState.isConnecting = false;
-
-      // 4. Update UI
-      renderApp();
-    }
-    
     /** Ends the current match and attempts to reconnect to the previous partner. */
     function backToPreviousPartner() {
-      if (!appState.lastPartnerId) return;
+      if (!appState.lastPartnerId || appState.connectionStatus === 'searching') return;
       
       const prevId = appState.lastPartnerId;
       const prevName = appState.lastPartnerName;
 
-      // 1. Disconnect current (if connected). Do NOT save history.
-      prepareForDisconnection(false);
+      // Disconnect current (if connected). Do NOT save history.
+      endCall(false);
 
-      // 2. Clear history immediately to prevent going back twice in a row
+      // Clear history immediately to prevent going back twice in a row
       appState.lastPartnerId = null;
       appState.lastPartnerName = null;
       
       console.log(`Attempting to go back to ${prevName} (${prevId})...`);
 
-      // 3. Attempt reconnection using the saved ID/Name
-      connect(prevId, prevName); 
+      // Attempt immediate reconnection (simulated as found)
+      startCall(prevId, prevName); 
     }
     
-    // --- Firestore Data Handlers (Unchanged from previous version) ---
+    // --- Firestore Partner Management ---
+
+    /** Sets the current user's status to 'available' in Firestore. */
+    async function goOnline() {
+        if (!currentUserId || !db) return;
+        try {
+            await setDoc(doc(getOnlineUsersCollectionRef(), currentUserId), {
+                status: 'available',
+                filter: appState.premiumActive ? appState.genderFilter : 'any',
+                last_active: serverTimestamp(),
+                userId: currentUserId,
+            });
+            console.log('User set to available.');
+        } catch (e) {
+            console.error('Error setting user online status:', e);
+        }
+    }
+
+    /** Removes the current user's availability from Firestore and unclaims partner. */
+    async function goOffline(partnerId = null) {
+        if (!currentUserId || !db) return;
+        try {
+            // 1. Remove self from the online list
+            await deleteDoc(doc(getOnlineUsersCollectionRef(), currentUserId));
+            console.log('User removed from online list.');
+
+            // 2. If we had a partner, unclaim them (optional, relies on them being self-aware)
+            if (partnerId) {
+                // In a real app, you would notify the partner to reset their status.
+                // We simulate by trying to remove any 'claimed' status from the partner's document.
+                const partnerRef = doc(getOnlineUsersCollectionRef(), partnerId);
+                // Note: We use merge true in case the partner is already being claimed by someone else or has their own data.
+                await updateDoc(partnerRef, {
+                    status: 'available',
+                    claimed_by: null,
+                }).catch(err => {
+                    // Ignore error if partner document no longer exists (they already went offline)
+                    if (err.code !== 'not-found') console.warn("Failed to unclaim partner (they may be offline):", err);
+                });
+            }
+        } catch (e) {
+            console.error('Error setting user offline status:', e);
+        }
+    }
+
+    /** Queries Firestore for an available partner based on filter. */
+    async function searchForPartner() {
+        console.log(`Searching for partner with filter: ${appState.genderFilter}`);
+        try {
+            let q = query(
+                getOnlineUsersCollectionRef(),
+                where('status', '==', 'available'),
+                where('userId', '!=', currentUserId)
+            );
+
+            // Add gender filter if premium is active and filter is not 'any'
+            if (appState.premiumActive && appState.genderFilter !== 'any') {
+                // This is a simplified simulation. Real filtering would be more complex.
+                // Assuming partners also store their own gender in the document.
+                q = query(q, where('gender', '==', appState.genderFilter));
+            }
+
+            const querySnapshot = await getDocs(q);
+            
+            if (!querySnapshot.empty) {
+                const partnerDoc = querySnapshot.docs[0];
+                const partnerId = partnerDoc.id;
+
+                // Attempt to claim the partner
+                const partnerRef = doc(getOnlineUsersCollectionRef(), partnerId);
+                await updateDoc(partnerRef, {
+                    status: 'claimed',
+                    claimed_by: currentUserId,
+                });
+
+                // Set my own status to 'calling'
+                await updateDoc(doc(getOnlineUsersCollectionRef(), currentUserId), {
+                    status: 'calling',
+                    claiming: partnerId,
+                });
+
+                return partnerDoc.data(); 
+
+            } else {
+                return null;
+            }
+        } catch (e) {
+            console.error('Error searching for partner (possible race condition):', e);
+            return null;
+        }
+    }
+
+    /** Main function to start the partner search and connection process. */
+    async function connect() {
+      if (appState.connectionStatus !== 'idle' && appState.connectionStatus !== 'not_found') return;
+      
+      // 1. Start local media and set self to available
+      await startLocalStream();
+      await goOnline();
+      
+      appState.connectionStatus = 'searching';
+      renderApp();
+
+      let partner = null;
+      const MAX_ATTEMPTS = 5;
+      const SEARCH_INTERVAL = 3000; // 3 seconds
+
+      for (let attempts = 0; attempts < MAX_ATTEMPTS; attempts++) {
+        partner = await searchForPartner();
+        
+        if (partner) {
+            // Partner found and claimed!
+            const partnerId = partner.userId;
+            const partnerName = generatePartnerName(partnerId);
+            
+            appState.connectionStatus = 'matched';
+            await startCall(partnerId, partnerName);
+            return;
+        }
+        
+        // Wait before next search attempt
+        await new Promise(resolve => setTimeout(resolve, SEARCH_INTERVAL));
+      }
+
+      // If loop finishes without finding a partner
+      appState.connectionStatus = 'not_found';
+      await goOffline();
+      
+      renderApp(); 
+      setTimeout(() => {
+        if (appState.connectionStatus === 'not_found') {
+            appState.connectionStatus = 'idle';
+            renderApp();
+        }
+      }, 5000);
+    }
+    
+    // --- Firestore Data Handlers (Subscription/Filter Logic) ---
 
     /**
      * Initializes a listener for the user's settings (subscription and filter status).
-     * @param {string} userId - The authenticated user's ID.
      */
     function listenForUserSettings(userId) {
       if (!db) return;
@@ -844,11 +972,9 @@
             appState.premiumActive = newPremium;
             appState.currentPlan = newPlan;
             appState.genderFilter = newFilter;
-            console.log(`State updated. Plan: ${appState.currentPlan}, Filter: ${appState.genderFilter}`);
             renderApp();
           }
         } else {
-          // Document does not exist, create a default one
           console.log("No user settings found, creating default.");
           setDoc(docRef, {
             currentPlan: null,
@@ -864,18 +990,14 @@
 
     /** Sets the subscription plan in Firestore. */
     async function setSubscription(planId) {
-      if (!currentUserId || !db) {
-        console.error("User not authenticated or database not initialized.");
-        return false;
-      }
+      if (!currentUserId || !db) { return false; }
       try {
         const docRef = doc(db, USER_SETTINGS_PATH(currentUserId));
         await updateDoc(docRef, {
           currentPlan: planId,
-          genderFilter: 'any', // Reset filter on new subscription
+          genderFilter: 'any', 
           purchaseDate: Timestamp.now()
         });
-        console.log(`Subscription set to ${planId} in Firestore.`);
         return true;
       } catch (e) {
         console.error("Error setting subscription:", e);
@@ -885,16 +1007,10 @@
 
     /** Updates the selected gender filter in Firestore. */
     async function updateGenderFilter(filter) {
-        if (!currentUserId || !db || !appState.premiumActive) {
-             console.error("Cannot update filter: Not authenticated or premium not active.");
-             return false;
-        }
+        if (!currentUserId || !db || !appState.premiumActive) { return false; }
         try {
             const docRef = doc(db, USER_SETTINGS_PATH(currentUserId));
-            await updateDoc(docRef, {
-                genderFilter: filter
-            });
-            console.log(`Gender filter set to: ${filter}`);
+            await updateDoc(docRef, { genderFilter: filter });
             return true;
         } catch (e) {
             console.error("Error updating gender filter:", e);
@@ -903,50 +1019,27 @@
     }
 
     // --- UI Event Handlers and Modals ---
-
-    function openPremiumModal() {
-      elements.premiumModal.style.display = 'flex';
-      elements.premiumModal.setAttribute('aria-hidden', 'false');
-      renderApp(); // Render immediately to show correct modal content (plans or filter)
-    }
-
-    function closePremiumModal() {
-      elements.premiumModal.style.display = 'none';
-      elements.premiumModal.setAttribute('aria-hidden', 'true');
-    }
-
-    function openQuestionnaire() {
-      elements.questionModal.style.display = 'flex';
-      elements.questionModal.setAttribute('aria-hidden', 'false');
-    }
-
-    function closeQuestionnaire() {
-      elements.questionModal.style.display = 'none';
-      elements.questionModal.setAttribute('aria-hidden', 'true');
-    }
-
-    // --- Initialization and Event Listeners ---
+    function openPremiumModal() { elements.premiumModal.style.display = 'flex'; elements.premiumModal.setAttribute('aria-hidden', 'false'); renderApp(); }
+    function closePremiumModal() { elements.premiumModal.style.display = 'none'; elements.premiumModal.setAttribute('aria-hidden', 'true'); }
+    function openQuestionnaire() { elements.questionModal.style.display = 'flex'; elements.questionModal.setAttribute('aria-hidden', 'false'); }
+    function closeQuestionnaire() { elements.questionModal.style.display = 'none'; elements.questionModal.setAttribute('aria-hidden', 'true'); }
 
     function setupEventListeners() {
       // Main UI interaction listeners
+      elements.connectBtn.onclick = connect;
+      elements.nextPartnerBtn.onclick = nextPartner;
+      elements.endCallBtn.onclick = () => endCall(true);
+      elements.backBtn.onclick = backToPreviousPartner; 
+
       elements.premiumBtn.onclick = openPremiumModal; 
       elements.micToggle.onclick = () => toggleMedia('audio', !appState.micOn);
       elements.cameraToggle.onclick = () => toggleMedia('video', !appState.cameraOn);
-
-      // Updated button listeners when connected
-      elements.nextPartnerBtn.onclick = nextPartner;
-      elements.endCallBtn.onclick = endCall;
-      elements.backBtn.onclick = backToPreviousPartner; // New function here
 
       // Listener for Plan Selection
       elements.selectPlanButtons.forEach(btn => {
         btn.onclick = async () => {
           const planId = btn.dataset.planId;
-          const success = await setSubscription(planId);
-          if (success) {
-            // Firestore listener updates state
-            console.log(`Plan ${planId} selected. Filter is now active.`);
-          }
+          await setSubscription(planId);
         };
       });
       
@@ -955,7 +1048,6 @@
         btn.onclick = async () => {
             const filter = btn.dataset.filter;
             await updateGenderFilter(filter);
-            // State update is handled by onSnapshot
         };
       });
       
@@ -964,16 +1056,12 @@
       elements.closeQuestionSpan.onclick = closeQuestionnaire;
       elements.closeQuestionBtn.onclick = closeQuestionnaire;
 
-
       // Close modals when backdrop clicked
       [elements.questionModal, elements.premiumModal].forEach(mod => {
         mod.addEventListener('click', e => {
           if (e.target === mod) {
-            if (mod.id === 'premiumModal') {
-              closePremiumModal();
-            } else if (mod.id === 'questionModal') {
-              closeQuestionnaire();
-            }
+            if (mod.id === 'premiumModal') { closePremiumModal(); } 
+            else if (mod.id === 'questionModal') { closeQuestionnaire(); }
           }
         });
       });
@@ -982,10 +1070,7 @@
 
     /** Firebase Initialization and Auth */
     async function initializeFirebase() {
-      if (!firebaseConfig) {
-        console.error("Firebase config is missing. Cannot initialize Firebase.");
-        return;
-      }
+      if (!firebaseConfig) { console.error("Firebase config is missing."); return; }
       
       setLogLevel('debug');
       app = initializeApp(firebaseConfig);
@@ -994,13 +1079,10 @@
       
       try {
         await setPersistence(auth, browserSessionPersistence);
-        
         if (initialAuthToken) {
           await signInWithCustomToken(auth, initialAuthToken);
-          console.log("Signed in with custom token.");
         } else {
           await signInAnonymously(auth);
-          console.log("Signed in anonymously.");
         }
       } catch (error) {
         console.error("Firebase Auth failed:", error);
@@ -1010,9 +1092,9 @@
         if (user) {
           currentUserId = user.uid;
           elements.userIdDisplay.innerHTML = `User ID: ${currentUserId}`;
-          listenForUserSettings(currentUserId); // Start Firestore listener
+          listenForUserSettings(currentUserId); 
           appState.isAuthReady = true;
-          openQuestionnaire(); // Show welcome message on first successful auth
+          openQuestionnaire(); 
         } else {
           currentUserId = null;
           elements.userIdDisplay.textContent = 'User ID: Not Signed In';
@@ -1026,7 +1108,16 @@
     window.onload = function() {
       initializeFirebase();
       setupEventListeners();
-      renderApp(); // Initial render
+      // Ensure we go offline if the user closes the tab/window
+      window.addEventListener('beforeunload', () => {
+        if (currentUserId) {
+            // Use sendBeacon or sync storage for final cleanup if possible, 
+            // but for a simple firestore delete, relying on offline listener is often enough.
+            console.log("Attempting to go offline on unload.");
+            goOffline();
+        }
+      });
+      renderApp(); 
     };
 
   </script>
