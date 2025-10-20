@@ -160,7 +160,7 @@
       color: var(--bg-1);
     }
 
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
       background-color: #f7e69f;
     }
 
@@ -169,7 +169,7 @@
       color: white;
     }
 
-    .btn-danger:hover {
+    .btn-danger:hover:not(:disabled) {
       background-color: #f87171;
     }
     
@@ -179,9 +179,17 @@
       color: white;
       border: 1px solid var(--glass-border);
     }
-    .btn-secondary:hover {
+    .btn-secondary:hover:not(:disabled) {
       background-color: rgba(255, 255, 255, 0.1);
     }
+    
+    /* Disabled state for all buttons */
+    .btn:disabled, .btn[disabled] {
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
 
     .icon-controls {
       display: flex;
@@ -206,9 +214,15 @@
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     }
 
-    .icon-btn:hover {
+    .icon-btn:hover:not(:disabled) {
       background-color: rgba(255, 255, 255, 0.1);
     }
+    
+    .icon-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
 
     .icon-btn.active {
       background-color: var(--positive);
@@ -321,15 +335,10 @@
       }
       .main-action-group {
         width: 100%;
+        display: flex; /* Ensure action group uses flex for buttons */
       }
       .btn {
         width: 100%;
-      }
-      /* Ensure connected buttons take full width on mobile, sharing space */
-      .main-action-group button:not(#connectBtn) {
-        flex-grow: 1 !important;
-      }
-      .filter-btn {
         flex-grow: 1;
       }
     }
@@ -399,7 +408,8 @@
         <button id="endCallBtn" class="btn btn-danger hidden flex-grow md:flex-grow-0">
           <i class="fas fa-phone-slash"></i> End Call
         </button>
-        <button id="backBtn" class="btn btn-secondary hidden flex-grow md:flex-grow-0">
+        <!-- The back button is disabled if no previous partner is available -->
+        <button id="backBtn" class="btn btn-secondary hidden flex-grow md:flex-grow-0" disabled>
           <i class="fas fa-chevron-left"></i> Back
         </button>
       </div>
@@ -514,14 +524,28 @@
       genderFilter: 'any', // 'male', 'female', 'any'
       localStream: null,
       remoteStream: null, // Simulated
+      
+      // NEW: History for 'Back' button
+      lastPartnerId: null, 
+      lastPartnerName: null,
+      currentPartnerId: null, // Used to track who the 'last' partner was before moving them to history
+      currentPartnerName: null,
     };
+    
+    // Simple helper for generating simulated partner data
+    const NAMES = ["Alex", "Jordan", "Taylor", "Kai", "Rylie", "Jesse", "Sam", "Drew"];
+    function generatePartnerData() {
+        const id = crypto.randomUUID().substring(0, 8);
+        const name = NAMES[Math.floor(Math.random() * NAMES.length)];
+        return { id, name };
+    }
 
     // --- DOM Elements ---
     const elements = {
       connectBtn: document.getElementById('connectBtn'),
-      nextPartnerBtn: document.getElementById('nextPartnerBtn'), // New button
-      endCallBtn: document.getElementById('endCallBtn'),         // New button
-      backBtn: document.getElementById('backBtn'),               // New button
+      nextPartnerBtn: document.getElementById('nextPartnerBtn'), 
+      endCallBtn: document.getElementById('endCallBtn'),        
+      backBtn: document.getElementById('backBtn'),               
       micToggle: document.getElementById('micToggle'),
       cameraToggle: document.getElementById('cameraToggle'),
       connectionStatus: document.getElementById('connectionStatus'),
@@ -540,7 +564,7 @@
       planOptionsContainer: document.getElementById('planOptionsContainer'),
       genderSelectionDiv: document.getElementById('genderSelection'),
       selectPlanButtons: document.querySelectorAll('.select-plan-btn'),
-      filterButtons: document.querySelectorAll('#genderSelection .filter-btn'), // Scoped selection
+      filterButtons: document.querySelectorAll('#genderSelection .filter-btn'), 
       
       closePremiumSpan: document.getElementById('closePremiumSpan'),
       closeQuestionSpan: document.getElementById('closeQuestionSpan'),
@@ -558,6 +582,10 @@
       elements.nextPartnerBtn.classList.toggle('hidden', !appState.isConnected);
       elements.endCallBtn.classList.toggle('hidden', !appState.isConnected);
       elements.backBtn.classList.toggle('hidden', !appState.isConnected);
+      
+      // Manage the 'Back' button disabled state
+      const canGoBack = appState.lastPartnerId !== null;
+      elements.backBtn.disabled = !canGoBack;
 
 
       if (appState.isConnected) {
@@ -579,7 +607,7 @@
       let statusClass, statusText;
       if (appState.isConnected) {
         statusClass = 'matched';
-        statusText = 'Matched';
+        statusText = `Matched with ${appState.currentPartnerName}`;
       } else if (appState.isConnecting) {
         statusClass = 'connecting';
         statusText = 'Connecting';
@@ -602,7 +630,14 @@
       // 4. Video Display
       elements.localPlaceholder.classList.toggle('hidden-placeholder', appState.localStream && appState.cameraOn);
       elements.remotePlaceholder.classList.toggle('hidden-placeholder', appState.isConnected);
-      elements.remoteStatusText.textContent = appState.isConnected ? 'Connected to Partner' : (appState.isConnecting ? 'Searching...' : 'Awaiting Match...');
+      
+      let remoteStatusDisplay = 'Awaiting Match...';
+      if (appState.isConnected) {
+          remoteStatusDisplay = `Connected to ${appState.currentPartnerName}`;
+      } else if (appState.isConnecting) {
+          remoteStatusDisplay = (appState.currentPartnerId) ? `Reconnecting to ${appState.currentPartnerName}...` : 'Searching...';
+      } 
+      elements.remoteStatusText.textContent = remoteStatusDisplay;
 
       // 5. Premium Indicator / Filter Status
       if (appState.premiumActive) {
@@ -623,11 +658,7 @@
       }
     }
 
-    /**
-     * Toggles the state of a media track (audio or video).
-     * @param {string} type - 'audio' or 'video'
-     * @param {boolean} newState - The desired state (true for on, false for off)
-     */
+    /** Toggles the state of a media track (audio or video). */
     function toggleMedia(type, newState) {
       if (!appState.localStream) return;
 
@@ -636,8 +667,6 @@
 
       if (track) {
         track.enabled = newState;
-        appState[trackType] = newState;
-      } else if (type === 'video' && newState) {
         appState[trackType] = newState;
       } else if (type === 'video' && !newState) {
          appState[trackType] = newState;
@@ -671,34 +700,67 @@
       }
     }
 
-    /** Starts the connection process (simulated matching and call). */
-    async function connect() {
+    /** Starts the connection process (simulated matching and call). 
+     * If partnerId is provided, it's a reconnection attempt.
+    */
+    async function connect(partnerId = null, partnerName = null) {
       if (appState.isConnected || appState.isConnecting) return;
 
-      console.log('Starting connect sequence...');
+      const isReconnecting = partnerId !== null;
+      
+      // 1. Prepare for connection
       appState.isConnecting = true;
+      appState.currentPartnerId = partnerId;
+      appState.currentPartnerName = partnerName || 'New Partner';
+      
+      console.log(`Starting ${isReconnecting ? 'reconnect' : 'match'} sequence...`);
       renderApp();
 
-      // 1. Get Local Media (Attempt)
+      // 2. Get Local Media (Attempt)
       const stream = await startLocalStream();
       if (!stream) {
         console.warn("Continuing match simulation without media stream.");
       }
 
-      // 2. Start Matching Simulation
-      elements.remoteStatusText.textContent = "Searching for partner...";
-      // Premium benefit: faster match (based on currentPlan existence)
-      await new Promise(resolve => setTimeout(resolve, appState.premiumActive ? 1500 : 3000)); 
+      // 3. Start Matching/Reconnecting Simulation
+      elements.remoteStatusText.textContent = isReconnecting ? `Reconnecting to ${partnerName}...` : "Searching for partner...";
+      
+      // Simulation delay: quicker if reconnecting or premium
+      const delay = isReconnecting ? 1000 : (appState.premiumActive ? 1500 : 3000);
+      await new Promise(resolve => setTimeout(resolve, delay)); 
 
-      // 3. Match Found (Simulated Remote Stream)
+      // 4. Match Found / Reconnection Successful
       appState.isConnected = true;
       appState.isConnecting = false;
       
-      // Simulate a placeholder remote stream (real WebRTC would set remoteVideo.srcObject here)
+      // If it was a new match, generate new partner data
+      if (!isReconnecting) {
+          const newPartner = generatePartnerData();
+          appState.currentPartnerId = newPartner.id;
+          appState.currentPartnerName = newPartner.name;
+      }
+      
+      // Simulate a placeholder remote stream 
       elements.remoteVideo.srcObject = elements.localVideo.srcObject; 
       
-      console.log('Match established!');
+      console.log(`Connection established with: ${appState.currentPartnerName} (${appState.currentPartnerId})`);
       renderApp();
+    }
+
+    /** Prepares the state for the next connection, saving current partner to history. */
+    function prepareForDisconnection(shouldSaveHistory) {
+      if (shouldSaveHistory && appState.currentPartnerId) {
+          // Save the current partner to history (lastPartner)
+          appState.lastPartnerId = appState.currentPartnerId;
+          appState.lastPartnerName = appState.currentPartnerName;
+          console.log(`Saved ${appState.lastPartnerName} to history.`);
+      }
+      
+      // Reset current partner
+      appState.currentPartnerId = null;
+      appState.currentPartnerName = null;
+      appState.isConnected = false;
+      elements.remoteVideo.srcObject = null;
     }
 
     /** Ends the current match and immediately starts searching for a new one. */
@@ -706,23 +768,21 @@
       if (!appState.isConnected) return;
 
       console.log('Ending current match and searching for next partner...');
-
-      // 1. Reset match state
-      appState.isConnected = false;
+      // Save current partner to history before disconnection
+      prepareForDisconnection(true); 
       
-      // 2. Clear remote video source (important for visual feedback)
-      elements.remoteVideo.srcObject = null; 
-      
-      // 3. Immediately start the connection process again.
-      // connect() will reuse the local stream if it's still running.
+      // Immediately start the connection process again.
       connect();
     }
     
-    /** Ends the current call and stops media. */
+    /** Stops media and fully disconnects the session. */
     function endCall() {
       if (!appState.isConnected && !appState.isConnecting) return;
 
-      console.log('Ending call.');
+      console.log('Ending call and stopping media.');
+      
+      // Save current partner to history before disconnection
+      prepareForDisconnection(true);
 
       // 1. Stop local tracks
       if (appState.localStream) {
@@ -731,27 +791,38 @@
       
       // 2. Clear video sources and set stream to null
       elements.localVideo.srcObject = null;
-      elements.remoteVideo.srcObject = null;
       appState.localStream = null;
       
-      // 3. Reset state
-      appState.isConnected = false;
-      appState.isConnecting = false;
+      // 3. Reset media state
       appState.cameraOn = false;
       appState.micOn = false;
+      appState.isConnecting = false;
 
       // 4. Update UI
       renderApp();
     }
     
-    /** Ends the current match and opens the premium/filter modal. */
-    function backToSettings() {
-      console.log('Ending call and returning to settings.');
-      endCall(); // Stop media and reset state
-      openPremiumModal(); // Open the modal
-    }
+    /** Ends the current match and attempts to reconnect to the previous partner. */
+    function backToPreviousPartner() {
+      if (!appState.lastPartnerId) return;
+      
+      const prevId = appState.lastPartnerId;
+      const prevName = appState.lastPartnerName;
 
-    // --- Firestore Data Handlers (Unchanged) ---
+      // 1. Disconnect current (if connected). Do NOT save history.
+      prepareForDisconnection(false);
+
+      // 2. Clear history immediately to prevent going back twice in a row
+      appState.lastPartnerId = null;
+      appState.lastPartnerName = null;
+      
+      console.log(`Attempting to go back to ${prevName} (${prevId})...`);
+
+      // 3. Attempt reconnection using the saved ID/Name
+      connect(prevId, prevName); 
+    }
+    
+    // --- Firestore Data Handlers (Unchanged from previous version) ---
 
     /**
      * Initializes a listener for the user's settings (subscription and filter status).
@@ -765,7 +836,6 @@
         if (docSnap.exists()) {
           const data = docSnap.data();
           
-          // Premium is active if a plan is set
           const newPremium = !!data.currentPlan; 
           const newPlan = data.currentPlan || null;
           const newFilter = data.genderFilter || 'any';
@@ -837,8 +907,7 @@
     function openPremiumModal() {
       elements.premiumModal.style.display = 'flex';
       elements.premiumModal.setAttribute('aria-hidden', 'false');
-      // Render immediately to show correct modal content (plans or filter)
-      renderApp();
+      renderApp(); // Render immediately to show correct modal content (plans or filter)
     }
 
     function closePremiumModal() {
@@ -864,10 +933,10 @@
       elements.micToggle.onclick = () => toggleMedia('audio', !appState.micOn);
       elements.cameraToggle.onclick = () => toggleMedia('video', !appState.cameraOn);
 
-      // New button listeners when connected
+      // Updated button listeners when connected
       elements.nextPartnerBtn.onclick = nextPartner;
       elements.endCallBtn.onclick = endCall;
-      elements.backBtn.onclick = backToSettings;
+      elements.backBtn.onclick = backToPreviousPartner; // New function here
 
       // Listener for Plan Selection
       elements.selectPlanButtons.forEach(btn => {
@@ -875,7 +944,7 @@
           const planId = btn.dataset.planId;
           const success = await setSubscription(planId);
           if (success) {
-            // Firestore listener updates state, renderApp switches modal content
+            // Firestore listener updates state
             console.log(`Plan ${planId} selected. Filter is now active.`);
           }
         };
